@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" style="background: #0a0a0a;">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Karizzma</title>
+    <style>
+      .splash {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: #0a0a0a;
+      }
+      .splash-logo {
+        width: 96px;
+        height: 96px;
+        border-radius: 16px;
+        animation: pulse 2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.6; transform: scale(0.92); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+    </style>
+  </head>
+  <body style="background: #0a0a0a; margin: 0;">
+    <div id="root">
+      <div class="splash">
+        <img src="/src/assets/app-icon.png" class="splash-logo" alt="" />
+      </div>
+    </div>
+    <script>
+      // Show the Tauri window once the splash has painted.
+      // Retries until __TAURI_INTERNALS__ is injected by Tauri.
+      (function() {
+        var shown = false;
+        function tryShow() {
+          if (shown) return;
+          if (window.__TAURI_INTERNALS__) {
+            shown = true;
+            window.__TAURI_INTERNALS__.invoke('show_main_window');
+          } else {
+            setTimeout(tryShow, 20);
+          }
+        }
+        // Double rAF ensures browser has painted the splash
+        requestAnimationFrame(function() {
+          requestAnimationFrame(tryShow);
+        });
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
