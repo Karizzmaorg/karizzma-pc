@@ -1,12 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::io::Read as IoRead;
 use tauri::{AppHandle, Manager};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PageInfo {
-    pub urls: Vec<String>,
-}
 
 /// Get pages for a chapter. For local files, reads images from the archive/folder.
 #[tauri::command]
@@ -159,6 +153,74 @@ pub async fn update_reading_progress(
     .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+/// Batch convert multiple local file paths to base64 data URLs in a single IPC call
+#[tauri::command]
+pub async fn read_images_as_data_urls(paths: Vec<String>) -> Result<Vec<String>, String> {
+    use base64::Engine;
+
+    let results: Vec<String> = paths
+        .into_iter()
+        .map(|path| {
+            let file_path = PathBuf::from(&path);
+            if path.starts_with("http://") || path.starts_with("https://") || path.starts_with("data:") {
+                return path;
+            }
+            let ext = file_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("png")
+                .to_lowercase();
+            let mime = match ext.as_str() {
+                "jpg" | "jpeg" => "image/jpeg",
+                "png" => "image/png",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "bmp" => "image/bmp",
+                "avif" => "image/avif",
+                _ => "image/png",
+            };
+            match std::fs::read(&file_path) {
+                Ok(buf) => {
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+                    format!("data:{};base64,{}", mime, b64)
+                }
+                Err(_) => String::new(),
+            }
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Read a local file and return it as a base64 data URL
+#[tauri::command]
+pub async fn read_image_as_data_url(path: String) -> Result<String, String> {
+    use std::io::Read as StdRead;
+    let file_path = PathBuf::from(&path);
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_lowercase();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        _ => "image/png",
+    };
+
+    let mut file = std::fs::File::open(&file_path).map_err(|e| e.to_string())?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 fn is_image_file(path: &PathBuf) -> bool {
