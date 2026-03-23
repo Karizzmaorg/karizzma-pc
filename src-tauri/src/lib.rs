@@ -15,6 +15,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             library::get_library_titles,
             library::add_title_to_library,
@@ -24,6 +25,9 @@ pub fn run() {
             library::get_title_chapters,
             reader::get_chapter_pages,
             reader::update_reading_progress,
+            reader::read_image_as_data_url,
+            reader::read_images_as_data_urls,
+            library::update_title_order,
             settings::get_app_data_dir,
             show_main_window,
         ])

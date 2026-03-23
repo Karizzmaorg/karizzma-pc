@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use std::path::PathBuf;
+use std::io::Read as IoRead;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TitleInfo {
@@ -21,6 +22,7 @@ pub struct TitleInfo {
     pub date_added: Option<i64>,
     pub last_updated: Option<i64>,
     pub unread_count: Option<i64>,
+    pub sort_order: i64,
 }
 
 #[tauri::command]
@@ -38,7 +40,7 @@ pub async fn get_library_titles(app: AppHandle) -> Result<Vec<TitleInfo>, String
         .prepare(
             "SELECT id, source_id, url, title, artist, author, description,
                     cover_url, cover_local_path, status, content_type, genres,
-                    in_library, is_favorite, date_added, last_updated
+                    in_library, is_favorite, date_added, last_updated, sort_order
              FROM titles WHERE in_library = 1
              ORDER BY last_updated DESC",
         )
@@ -68,6 +70,7 @@ pub async fn get_library_titles(app: AppHandle) -> Result<Vec<TitleInfo>, String
                 date_added: row.get(14)?,
                 last_updated: row.get(15)?,
                 unread_count: None, // TODO: compute from chapters table
+                sort_order: row.get::<_, i64>(16).unwrap_or(0),
             })
         })
         .map_err(|e| e.to_string())?
@@ -154,6 +157,13 @@ pub async fn import_local_files(
             continue;
         }
 
+        // Normalize path to canonical form for consistent matching
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+        let path_str = canonical.to_string_lossy().to_string()
+            // Remove UNC prefix that canonicalize adds on Windows
+            .trim_start_matches(r"\\?\").to_string();
+        let path = PathBuf::from(&path_str);
+
         let title_name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -188,12 +198,39 @@ pub async fn import_local_files(
 
         let now = chrono::Utc::now().timestamp();
 
-        conn.execute(
-            "INSERT OR IGNORE INTO titles (source_id, url, title, content_type, status, genres, in_library, date_added, last_updated)
-             VALUES ('local', ?1, ?2, ?3, 'unknown', '[]', 1, ?4, ?4)",
-            rusqlite::params![path_str, title_name, content_type, now],
+        // Extract cover image from archive or folder
+        let cover_path = extract_cover(&app, &path, &title_name);
+
+        // Get next sort_order
+        let max_sort: i64 = conn
+            .query_row("SELECT COALESCE(MAX(sort_order), 0) FROM titles WHERE in_library = 1", [], |row| row.get(0))
+            .unwrap_or(0);
+
+        // Try to insert, or re-enable if previously removed
+        let rows = conn.execute(
+            "INSERT OR IGNORE INTO titles (source_id, url, title, content_type, status, genres, in_library, date_added, last_updated, cover_local_path, sort_order)
+             VALUES ('local', ?1, ?2, ?3, 'unknown', '[]', 1, ?4, ?4, ?5, ?6)",
+            rusqlite::params![path_str, title_name, content_type, now, cover_path, max_sort + 1],
         )
         .map_err(|e| e.to_string())?;
+
+        // If insert was ignored (title exists), re-enable it in library
+        if rows == 0 {
+            let updated = conn.execute(
+                "UPDATE titles SET in_library = 1, date_added = ?1, last_updated = ?1, cover_local_path = COALESCE(?2, cover_local_path) WHERE source_id = 'local' AND url = ?3",
+                rusqlite::params![now, cover_path, path_str],
+            )
+            .map_err(|e| e.to_string())?;
+
+            // If no rows updated (path mismatch), try matching by title name
+            if updated == 0 {
+                conn.execute(
+                    "UPDATE titles SET in_library = 1, url = ?1, date_added = ?2, last_updated = ?2, cover_local_path = COALESCE(?3, cover_local_path) WHERE source_id = 'local' AND title = ?4 AND in_library = 0",
+                    rusqlite::params![path_str, now, cover_path, title_name],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
 
         let title_id: i64 = conn
             .query_row(
@@ -314,4 +351,102 @@ pub async fn get_categories(app: AppHandle) -> Result<Vec<CategoryInfo>, String>
         .map_err(|e| e.to_string())?;
 
     Ok(categories)
+}
+
+#[tauri::command]
+pub async fn update_title_order(app: AppHandle, title_ids: Vec<i64>) -> Result<(), String> {
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("karizzma.db");
+
+    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    for (i, id) in title_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE titles SET sort_order = ?1 WHERE id = ?2",
+            rusqlite::params![i as i64, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn is_image_file(path: &PathBuf) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
+        Some("jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "avif")
+    )
+}
+
+/// Extract the first image from an archive or folder to use as cover art
+fn extract_cover(app: &AppHandle, path: &PathBuf, title_name: &str) -> Option<String> {
+    let covers_dir = app
+        .path()
+        .app_data_dir()
+        .ok()?
+        .join("covers");
+    std::fs::create_dir_all(&covers_dir).ok()?;
+
+    if path.is_dir() {
+        // Find first image in folder
+        let mut images: Vec<PathBuf> = std::fs::read_dir(path)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| is_image_file(p))
+            .collect();
+        images.sort_by(|a, b| natord::compare(&a.to_string_lossy(), &b.to_string_lossy()));
+
+        let first = images.first()?;
+        let ext = first.extension()?.to_str()?;
+        let cover_name = format!("{}.{}", sanitize_filename(title_name), ext);
+        let dest = covers_dir.join(&cover_name);
+        std::fs::copy(first, &dest).ok()?;
+        Some(dest.to_string_lossy().to_string())
+    } else {
+        // Extract first image from archive
+        let file = std::fs::File::open(path).ok()?;
+        let mut archive = zip::ZipArchive::new(file).ok()?;
+
+        // Collect image entries and sort them
+        let mut image_entries: Vec<(usize, String)> = Vec::new();
+        for i in 0..archive.len() {
+            let entry = archive.by_index(i).ok()?;
+            if entry.is_dir() {
+                continue;
+            }
+            let name = entry.name().to_string();
+            if is_image_file(&PathBuf::from(&name)) {
+                image_entries.push((i, name));
+            }
+        }
+        image_entries.sort_by(|a, b| natord::compare(&a.1, &b.1));
+
+        let (idx, entry_name) = image_entries.first()?;
+        let ext = PathBuf::from(entry_name)
+            .extension()?
+            .to_str()?
+            .to_string();
+        let cover_name = format!("{}.{}", sanitize_filename(title_name), ext);
+        let dest = covers_dir.join(&cover_name);
+
+        let mut entry = archive.by_index(*idx).ok()?;
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf).ok()?;
+        std::fs::write(&dest, &buf).ok()?;
+
+        Some(dest.to_string_lossy().to_string())
+    }
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' { c } else { '_' })
+        .collect()
 }

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { Title, Category } from "@/types/manga";
 
 type ViewMode = "grid" | "list";
-type SortField = "title" | "lastRead" | "lastUpdated" | "unreadCount" | "dateAdded";
+type SortField = "title" | "lastRead" | "lastUpdated" | "unreadCount" | "dateAdded" | "custom";
 type SortDirection = "asc" | "desc";
 
 interface LibraryFilters {

@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::path::Path;
 
-const CURRENT_SCHEMA_VERSION: i32 = 1;
+const CURRENT_SCHEMA_VERSION: i32 = 2;
 
 /// Initialize the database, creating tables and running migrations if needed.
 pub fn initialize(db_path: &Path) -> Result<()> {
@@ -32,8 +32,12 @@ pub fn initialize(db_path: &Path) -> Result<()> {
         )?;
     }
 
-    // Future migrations go here:
-    // if version < 2 { migrate_v2(&conn)?; }
+    if version < 2 {
+        conn.execute_batch(
+            "ALTER TABLE titles ADD COLUMN sort_order INTEGER DEFAULT 0;
+             UPDATE schema_version SET version = 2;"
+        )?;
+    }
 
     Ok(())
 }
@@ -59,6 +63,7 @@ fn create_initial_schema(conn: &Connection) -> Result<()> {
             is_favorite INTEGER DEFAULT 0,
             date_added INTEGER,
             last_updated INTEGER,
+            sort_order INTEGER DEFAULT 0,
             UNIQUE(source_id, url)
         );
 

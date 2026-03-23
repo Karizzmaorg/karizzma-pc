@@ -1,6 +1,6 @@
 export type ContentType = "manga" | "manhwa" | "manhua" | "novel" | "comic";
 export type TitleStatus = "ongoing" | "completed" | "hiatus" | "cancelled" | "unknown";
-export type ReadingMode = "rtl" | "ltr" | "vertical" | "double-page";
+export type ReadingMode = "rtl" | "ltr" | "vertical" | "double-page" | "single-panel";
 
 export interface Title {
   id: number;
@@ -20,6 +20,7 @@ export interface Title {
   dateAdded?: number;
   lastUpdated?: number;
   unreadCount?: number;
+  sortOrder: number;
 }
 
 export interface Chapter {

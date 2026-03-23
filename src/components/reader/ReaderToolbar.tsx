@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   ArrowUpDown,
   Columns2,
+  Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ReadingMode } from "@/types/manga";
@@ -18,6 +19,7 @@ const readingModes: { mode: ReadingMode; icon: typeof BookOpen; label: string }[
   { mode: "ltr", icon: ArrowLeftRight, label: "Left to Right" },
   { mode: "vertical", icon: ArrowUpDown, label: "Vertical Scroll" },
   { mode: "double-page", icon: Columns2, label: "Double Page" },
+  { mode: "single-panel", icon: Square, label: "Single Panel (Fit)" },
 ];
 
 export function ReaderToolbar() {
@@ -40,11 +42,15 @@ export function ReaderToolbar() {
   const hasNextChapter = currentIndex > 0;
 
   return (
-    <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent">
+    <div
+      className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent"
+      onMouseDown={(e) => e.preventDefault()}
+    >
       <div className="flex items-center gap-3 px-4 py-3">
         {/* Close */}
         <button
           onClick={closeReader}
+          tabIndex={-1}
           className="p-1.5 rounded-md hover:bg-white/10 text-white/80 hover:text-white transition-colors"
           title="Close reader"
         >
@@ -62,6 +68,7 @@ export function ReaderToolbar() {
         <button
           onClick={() => hasPrevChapter && goToChapter(chapters[currentIndex + 1])}
           disabled={!hasPrevChapter}
+          tabIndex={-1}
           className={cn(
             "p-1.5 rounded-md transition-colors",
             hasPrevChapter
@@ -75,6 +82,7 @@ export function ReaderToolbar() {
         <button
           onClick={() => hasNextChapter && goToChapter(chapters[currentIndex - 1])}
           disabled={!hasNextChapter}
+          tabIndex={-1}
           className={cn(
             "p-1.5 rounded-md transition-colors",
             hasNextChapter
@@ -92,6 +100,7 @@ export function ReaderToolbar() {
             <button
               key={mode}
               onClick={() => setReadingMode(mode)}
+              tabIndex={-1}
               title={label}
               className={cn(
                 "p-1.5 transition-colors",
@@ -108,6 +117,7 @@ export function ReaderToolbar() {
         {/* Fullscreen */}
         <button
           onClick={toggleFullscreen}
+          tabIndex={-1}
           className="p-1.5 rounded-md hover:bg-white/10 text-white/80 hover:text-white transition-colors"
           title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
         >
@@ -127,6 +137,7 @@ export function ReaderToolbar() {
             max={pages.length - 1}
             value={currentPage}
             onChange={(e) => setCurrentPage(Number(e.target.value))}
+            tabIndex={-1}
             className="flex-1 h-1 accent-brand"
           />
           <span className="text-xs text-white/60 w-6">{pages.length}</span>

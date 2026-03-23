@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import type { ReadingMode, Chapter } from "@/types/manga";
 
 interface ReaderState {
@@ -6,7 +7,7 @@ interface ReaderState {
   titleId: number | null;
   currentChapter: Chapter | null;
   chapters: Chapter[];
-  pages: string[]; // URLs or local paths to page images
+  pages: string[]; // data URLs for page images (empty string = not yet loaded)
   currentPage: number;
   readingMode: ReadingMode;
   isFullscreen: boolean;
@@ -28,6 +29,24 @@ interface ReaderState {
   goToChapter: (chapter: Chapter) => void;
 }
 
+let progressTimer: ReturnType<typeof setTimeout> | null = null;
+
+function saveProgressDebounced(chapterId: number, page: number, totalPages: number) {
+  if (progressTimer) clearTimeout(progressTimer);
+  progressTimer = setTimeout(() => {
+    const isRead = page >= totalPages - 1;
+    invoke("update_reading_progress", { chapterId, page, isRead }).catch(() => {});
+  }, 500);
+}
+
+function saveProgressImmediate(chapterId: number, page: number, totalPages: number) {
+  if (progressTimer) clearTimeout(progressTimer);
+  const isRead = page >= totalPages - 1;
+  invoke("update_reading_progress", { chapterId, page, isRead }).catch((e) =>
+    console.error("Failed to save reading progress:", e)
+  );
+}
+
 export const useReaderStore = create<ReaderState>((set, get) => ({
   isOpen: false,
   titleId: null,
@@ -35,7 +54,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   chapters: [],
   pages: [],
   currentPage: 0,
-  readingMode: "rtl",
+  readingMode: "ltr",
   isFullscreen: false,
   showToolbar: true,
   isLoading: false,
@@ -52,7 +71,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       isLoading: true,
     }),
 
-  closeReader: () =>
+  closeReader: async () => {
+    const { currentChapter, currentPage, pages } = get();
+    if (currentChapter) {
+      saveProgressImmediate(currentChapter.id, currentPage, pages.length);
+    }
+
     set({
       isOpen: false,
       titleId: null,
@@ -61,36 +85,73 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       pages: [],
       currentPage: 0,
       isLoading: false,
-    }),
+      isFullscreen: false,
+    });
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().setFullscreen(false);
+    } catch {}
+  },
 
   setPages: (pages) => set({ pages, isLoading: false }),
-  setCurrentPage: (currentPage) => set({ currentPage }),
+
+  setCurrentPage: (currentPage) => {
+    set({ currentPage });
+    const { currentChapter, pages } = get();
+    if (currentChapter) {
+      saveProgressDebounced(currentChapter.id, currentPage, pages.length);
+    }
+  },
 
   nextPage: () => {
-    const { currentPage, pages } = get();
+    const { currentPage, pages, readingMode, currentChapter } = get();
+    const step = readingMode === "double-page" ? 2 : 1;
     if (currentPage < pages.length - 1) {
-      set({ currentPage: currentPage + 1 });
+      const newPage = Math.min(currentPage + step, pages.length - 1);
+      set({ currentPage: newPage });
+      if (currentChapter) {
+        saveProgressDebounced(currentChapter.id, newPage, pages.length);
+      }
     }
   },
 
   prevPage: () => {
-    const { currentPage } = get();
+    const { currentPage, readingMode, currentChapter, pages } = get();
+    const step = readingMode === "double-page" ? 2 : 1;
     if (currentPage > 0) {
-      set({ currentPage: currentPage - 1 });
+      const newPage = Math.max(currentPage - step, 0);
+      set({ currentPage: newPage });
+      if (currentChapter) {
+        saveProgressDebounced(currentChapter.id, newPage, pages.length);
+      }
     }
   },
 
   setReadingMode: (readingMode) => set({ readingMode }),
-  toggleFullscreen: () => set((s) => ({ isFullscreen: !s.isFullscreen })),
+  toggleFullscreen: async () => {
+    const next = !get().isFullscreen;
+    set({ isFullscreen: next });
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().setFullscreen(next);
+    } catch {}
+  },
   toggleToolbar: () => set((s) => ({ showToolbar: !s.showToolbar })),
   setLoading: (isLoading) => set({ isLoading }),
   setZoom: (zoom) => set({ zoom: Math.max(0.5, Math.min(3, zoom)) }),
 
-  goToChapter: (chapter) =>
+  goToChapter: (chapter) => {
+    // Save progress for current chapter before switching
+    const { currentChapter, currentPage, pages } = get();
+    if (currentChapter) {
+      saveProgressImmediate(currentChapter.id, currentPage, pages.length);
+    }
+
     set({
       currentChapter: chapter,
-      currentPage: 0,
+      currentPage: chapter.lastPageRead,
       pages: [],
       isLoading: true,
-    }),
+    });
+  },
 }));

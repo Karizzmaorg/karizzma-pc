@@ -5,8 +5,18 @@
   "permissions": [
     "core:default",
     "core:window:allow-show",
+    "core:window:allow-set-fullscreen",
     "shell:allow-open",
     "store:default",
-    "dialog:default"
+    "dialog:default",
+    {
+      "identifier": "fs:allow-read",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:default",
+      "allow": [{ "path": "$APPDATA/**" }]
+    },
+    "fs:read-all"
   ]
 }

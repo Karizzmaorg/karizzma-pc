@@ -91,6 +91,24 @@ body {
   animation: fade-in 300ms ease-out;
 }
 
+/* Logo spinner - slower clockwise rotation */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 1.5s linear infinite;
+}
+
+/* Logo pulse - gentle scale + opacity breathe */
+@keyframes logo-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+.animate-logo-pulse {
+  animation: logo-pulse 1.8s ease-in-out infinite;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
