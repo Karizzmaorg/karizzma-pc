@@ -127,7 +127,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
   },
 
-  setReadingMode: (readingMode) => set({ readingMode }),
+  setReadingMode: (readingMode) => set({ readingMode, zoom: 1 }),
   toggleFullscreen: async () => {
     const next = !get().isFullscreen;
     set({ isFullscreen: next });

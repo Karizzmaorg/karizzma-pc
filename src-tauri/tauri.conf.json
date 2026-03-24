@@ -22,7 +22,8 @@
         "decorations": true,
         "resizable": true,
         "visible": false,
-        "backgroundColor": [10, 10, 10, 255]
+        "backgroundColor": [10, 10, 10, 255],
+        "zoomHotkeysEnabled": true
       }
     ],
     "security": {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, forwardRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useReaderStore } from "@/stores/reader-store";
 import { ReaderToolbar } from "./ReaderToolbar";
 
@@ -33,25 +34,33 @@ export function ReaderView() {
     }
   }, []);
 
-  // Scroll wheel zoom (Ctrl+scroll)
-  const handleWheel = useCallback(
-    (e: WheelEvent) => {
+  // Use a ref to always have current zoom without recreating handlers
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+  // Trackpad pinch zoom: WebView2 drops trackpad pinch gestures entirely — no JS events,
+  // no native zoom. We intercept the gesture at the Windows API level (WM_GESTURE/GID_ZOOM)
+  // in Rust, which emits a "pinch-zoom" Tauri event with the zoom delta.
+  useEffect(() => {
+    const unlisten = listen<number>("pinch-zoom", (event) => {
+      setZoom(zoomRef.current * event.payload);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setZoom]);
+
+  // Ctrl+scroll zoom (mouse wheel with Ctrl held)
+  useEffect(() => {
+    const handler = (e: WheelEvent) => {
       if (e.ctrlKey) {
         e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom(zoom + delta);
+        const raw = -e.deltaY;
+        const delta = Math.sign(raw) * Math.min(Math.abs(raw) * 0.01, 0.15);
+        setZoom(zoomRef.current + delta);
       }
-    },
-    [zoom, setZoom]
-  );
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (el) {
-      el.addEventListener("wheel", handleWheel, { passive: false });
-      return () => el.removeEventListener("wheel", handleWheel);
-    }
-  }, [handleWheel]);
+    };
+    document.addEventListener("wheel", handler, { capture: true, passive: false });
+    return () => document.removeEventListener("wheel", handler, { capture: true });
+  }, [setZoom]);
 
   // Keyboard navigation
   const handleKeyDown = useCallback(

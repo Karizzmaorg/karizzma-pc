@@ -4,6 +4,9 @@ mod storage;
 use commands::{library, reader, settings};
 use tauri::Manager;
 
+#[cfg(windows)]
+mod gesture;
+
 #[tauri::command]
 fn show_main_window(window: tauri::Window) {
     let _ = window.show();
@@ -32,6 +35,9 @@ pub fn run() {
             show_main_window,
         ])
         .setup(|app| {
+            #[cfg(windows)]
+            gesture::setup_pinch_zoom(app);
+
             let app_handle = app.handle().clone();
             // Initialize database on a background thread to avoid blocking window creation
             std::thread::spawn(move || {

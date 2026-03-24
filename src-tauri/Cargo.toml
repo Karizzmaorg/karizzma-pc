@@ -32,6 +32,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 base64 = "0.22"
 
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
